@@ -34,7 +34,14 @@ import platform
 import sys
 from pathlib import Path
 
+import asyncio
+import logging
+import time
+
 import torch
+
+import grpc
+
 
 FILE = Path(__file__).resolve()
 ROOT = FILE.parents[0]  # YOLOv5 root directory
@@ -50,8 +57,42 @@ from utils.plots import Annotator, colors, save_one_box
 from utils.torch_utils import select_device, smart_inference_mode
 
 
+from yolostreamingoutput_pb2 import YoloReply
+from yolostreamingoutput_pb2 import YoloRequest
+from yolostreamingoutput_pb2_grpc import YoloStreamerServicer
+from yolostreamingoutput_pb2_grpc import add_YoloStreamerServicer_to_server
+
+
+new_detection = 0
+
+
+class YoloStreamer(YoloStreamerServicer):
+
+    async def yoloDetection(self, request: YoloRequest,
+                            context: grpc.aio.ServicerContext) -> YoloReply:
+        logging.info("Serving sayHello request {%s}", request)
+        i = 0
+#       for i in range(request.num_greetings):
+        while new_detection > 0:
+            i = i+1
+            yield YoloReply(detection=f"Detection number {i}, {request.message}!")
+            new_detection = 0
+
+
+async def serve() -> None:
+    server = grpc.aio.server()
+    add_YoloStreamerServicer_to_server(YoloStreamer(), server)
+    listen_addr = "[::]:50051"
+    server.add_insecure_port(listen_addr)
+    logging.info("Starting server on %s", listen_addr)
+    await server.start()
+    await server.wait_for_termination()
+
+
+
+
 @smart_inference_mode()
-def run(
+async def yolo(
         weights=ROOT / 'yolov5s.pt',  # model path or triton URL
         source=ROOT / 'data/images',  # file/dir/URL/glob/screen/0(webcam)
         data=ROOT / 'data/coco128.yaml',  # dataset.yaml path
@@ -173,7 +214,7 @@ def run(
                         annotator.box_label(xyxy, label, color=colors(c, True))
                     if save_crop:
                         save_one_box(xyxy, imc, file=save_dir / 'crops' / names[c] / f'{p.stem}.jpg', BGR=True)
-
+                    
             # Stream results
             im0 = annotator.result()
             if view_img:
@@ -205,6 +246,7 @@ def run(
 
         # Print time (inference-only)
         LOGGER.info(f"{s}{'' if len(det) else '(no detections), '}{dt[1].dt * 1E3:.1f}ms")
+        new_detection = 1
 
     # Print results
     t = tuple(x.t / seen * 1E3 for x in dt)  # speeds per image
@@ -253,7 +295,8 @@ def parse_opt():
 
 def main(opt):
     check_requirements(ROOT / 'requirements.txt', exclude=('tensorboard', 'thop'))
-    run(**vars(opt))
+    asyncio.run(serve())
+    asyncio.run(yolo(**vars(opt)))
 
 
 if __name__ == '__main__':
