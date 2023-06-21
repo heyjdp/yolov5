@@ -37,11 +37,8 @@ from pathlib import Path
 import asyncio
 import logging
 import time
-
 import torch
-
 import grpc
-
 
 FILE = Path(__file__).resolve()
 ROOT = FILE.parents[0]  # YOLOv5 root directory
@@ -63,9 +60,6 @@ from yolostreamingoutput_pb2_grpc import YoloStreamerServicer
 from yolostreamingoutput_pb2_grpc import add_YoloStreamerServicer_to_server
 
 
-new_detection = 0
-
-
 class YoloStreamer(YoloStreamerServicer):
 
     async def yoloDetection(self, request: YoloRequest,
@@ -73,13 +67,16 @@ class YoloStreamer(YoloStreamerServicer):
         logging.info("Serving sayHello request {%s}", request)
         i = 0
 #       for i in range(request.num_greetings):
-        while new_detection > 0:
+        while True:
+            item = await queue.get()
+            print(f'consuming {item}...')
+            queue.task_done()
             i = i+1
             yield YoloReply(detection=f"Detection number {i}, {request.message}!")
-            new_detection = 0
 
 
 async def serve() -> None:
+    print(f'SERVER coming UP...')
     server = grpc.aio.server()
     add_YoloStreamerServicer_to_server(YoloStreamer(), server)
     listen_addr = "[::]:50051"
@@ -89,10 +86,8 @@ async def serve() -> None:
     await server.wait_for_termination()
 
 
-
-
 @smart_inference_mode()
-async def yolo(
+async def yolo(queue,
         weights=ROOT / 'yolov5s.pt',  # model path or triton URL
         source=ROOT / 'data/images',  # file/dir/URL/glob/screen/0(webcam)
         data=ROOT / 'data/coco128.yaml',  # dataset.yaml path
@@ -200,6 +195,10 @@ async def yolo(
                     n = (det[:, 5] == c).sum()  # detections per class
                     s += f"{n} {names[int(c)]}{'s' * (n > 1)}, "  # add to string
 
+                # Put results in Queue
+                print(f'QUEUE')
+                await queue.put(s)
+
                 # Write results
                 for *xyxy, conf, cls in reversed(det):
                     if save_txt:  # Write to file
@@ -246,7 +245,7 @@ async def yolo(
 
         # Print time (inference-only)
         LOGGER.info(f"{s}{'' if len(det) else '(no detections), '}{dt[1].dt * 1E3:.1f}ms")
-        new_detection = 1
+        await asyncio.sleep(2)
 
     # Print results
     t = tuple(x.t / seen * 1E3 for x in dt)  # speeds per image
@@ -293,12 +292,33 @@ def parse_opt():
     return opt
 
 
-def main(opt):
+async def consume():
+    while True:
+        # wait for an item from the producer
+        item = await queue.get()
+
+        # process the item
+        print(f'consuming {item}...')
+        # simulate i/o operation using sleep
+        #await asyncio.sleep(random.random())
+
+        # Notify the queue that the item has been processed
+        queue.task_done()
+
+
+async def main(opt):
     check_requirements(ROOT / 'requirements.txt', exclude=('tensorboard', 'thop'))
-    asyncio.run(serve())
-    asyncio.run(yolo(**vars(opt)))
+
+    global queue
+    queue = asyncio.Queue()
+
+    consumer = asyncio.create_task(serve())
+    await yolo(queue, **vars(opt))
+    
+    await queue.join()
+    consumer.cancel()
 
 
 if __name__ == '__main__':
     opt = parse_opt()
-    main(opt)
+    asyncio.run(main(opt))
