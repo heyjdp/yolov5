@@ -32,10 +32,10 @@ import argparse
 import os
 import platform
 import sys
+
 from pathlib import Path
 
 import asyncio
-import logging
 import time
 import torch
 import grpc
@@ -157,6 +157,7 @@ async def yolo(
         # pred = utils.general.apply_classifier(pred, classifier_model, im, im0s)
 
         # Process predictions
+        the_msg = ''
         for i, det in enumerate(pred):  # per image
             seen += 1
             if webcam:  # batch_size >= 1
@@ -172,7 +173,14 @@ async def yolo(
             gn = torch.tensor(im0.shape)[[1, 0, 1, 0]]  # normalization gain whwh
             imc = im0.copy() if save_crop else im0  # for save_crop
             annotator = Annotator(im0, line_width=line_thickness, example=str(names))
+
+            the_msg += f'CAM:{i};' # Camera number
+            the_msg += f'SIZ:{im0.shape[:2]};' # Camera size
+
+            det_count = 0
             if len(det):
+                det_count += 1
+
                 # Rescale boxes from img_size to im0 size
                 det[:, :4] = scale_boxes(im.shape[2:], det[:, :4], im0.shape).round()
 
@@ -191,9 +199,8 @@ async def yolo(
                     locx, locy, locw, loch = xywh
                     c = int(cls)  # integer class
 
-                    d = f"{locx}, {locy}, {locw}, {loch}, {names[c]}, {conf:.2f}"
-                    LOGGER.info(f'd')
-                    await queue.put(d)
+                    d = f"{locx},{locy},{locw},{loch},{names[c]},{conf:.2f}"
+                    the_msg += f'OBJ:{d};' # Detection number
 
                     if save_txt:  # Write to file
                         line = (cls, *xywh, conf) if save_conf else (cls, *xywh)  # label format
@@ -238,6 +245,7 @@ async def yolo(
 
         # Print time (inference-only)
         LOGGER.info(f"{s}{'' if len(det) else '(no detections), '}{dt[1].dt * 1E3:.1f}ms")
+        await queue.put(the_msg)
         await asyncio.sleep(0.001)
 
     # Print results

@@ -19,7 +19,7 @@
 
 cmake_minimum_required(VERSION 3.8)
 
-project(HelloWorld C CXX)
+project(YoloStreamer C CXX)
 
 include(./common.cmake)
 
@@ -58,9 +58,7 @@ target_link_libraries(hw_grpc_proto
 
 # Targets greeter_[async_](client|server)
 foreach(_target
-#    greeter_client
-#    greeter_server
-    greeter_streaming_client
+    yolo_streaming_client
   )
   add_executable(${_target} "${_target}.cc")
   target_link_libraries(${_target}
