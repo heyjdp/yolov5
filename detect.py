@@ -64,30 +64,16 @@ class YoloStreamer(YoloStreamerServicer):
 
     async def yoloDetection(self, request: YoloRequest,
                             context: grpc.aio.ServicerContext) -> YoloReply:
-        logging.info("Serving sayHello request {%s}", request)
-        i = 0
-#       for i in range(request.num_greetings):
+        LOGGER.info(f'gRPC Request: {request}')
         while True:
             item = await queue.get()
-            print(f'consuming {item}...')
+            LOGGER.info(f'consuming {item}')
             queue.task_done()
-            i = i+1
-            yield YoloReply(detection=f"Detection number {i}, {request.message}!")
-
-
-async def serve() -> None:
-    print(f'SERVER coming UP...')
-    server = grpc.aio.server()
-    add_YoloStreamerServicer_to_server(YoloStreamer(), server)
-    listen_addr = "[::]:50051"
-    server.add_insecure_port(listen_addr)
-    logging.info("Starting server on %s", listen_addr)
-    await server.start()
-    await server.wait_for_termination()
+            yield YoloReply(detection=f"{item}")
 
 
 @smart_inference_mode()
-async def yolo(queue,
+async def yolo(
         weights=ROOT / 'yolov5s.pt',  # model path or triton URL
         source=ROOT / 'data/images',  # file/dir/URL/glob/screen/0(webcam)
         data=ROOT / 'data/coco128.yaml',  # dataset.yaml path
@@ -196,19 +182,26 @@ async def yolo(queue,
                     s += f"{n} {names[int(c)]}{'s' * (n > 1)}, "  # add to string
 
                 # Put results in Queue
-                print(f'QUEUE')
-                await queue.put(s)
+                #LOGGER.info(f'QUEUE: {s}')
+                #await queue.put(s)
 
                 # Write results
                 for *xyxy, conf, cls in reversed(det):
+                    xywh = (xyxy2xywh(torch.tensor(xyxy).view(1, 4)) / gn).view(-1).tolist()  # normalized xywh
+                    locx, locy, locw, loch = xywh
+                    c = int(cls)  # integer class
+
+                    d = f"{locx}, {locy}, {locw}, {loch}, {names[c]}, {conf:.2f}"
+                    LOGGER.info(f'd')
+                    await queue.put(d)
+
                     if save_txt:  # Write to file
-                        xywh = (xyxy2xywh(torch.tensor(xyxy).view(1, 4)) / gn).view(-1).tolist()  # normalized xywh
                         line = (cls, *xywh, conf) if save_conf else (cls, *xywh)  # label format
                         with open(f'{txt_path}.txt', 'a') as f:
                             f.write(('%g ' * len(line)).rstrip() % line + '\n')
 
                     if save_img or save_crop or view_img:  # Add bbox to image
-                        c = int(cls)  # integer class
+                        #c = int(cls)  # integer class
                         label = None if hide_labels else (names[c] if hide_conf else f'{names[c]} {conf:.2f}')
                         annotator.box_label(xyxy, label, color=colors(c, True))
                     if save_crop:
@@ -245,7 +238,7 @@ async def yolo(queue,
 
         # Print time (inference-only)
         LOGGER.info(f"{s}{'' if len(det) else '(no detections), '}{dt[1].dt * 1E3:.1f}ms")
-        await asyncio.sleep(2)
+        await asyncio.sleep(0.001)
 
     # Print results
     t = tuple(x.t / seen * 1E3 for x in dt)  # speeds per image
@@ -292,29 +285,21 @@ def parse_opt():
     return opt
 
 
-async def consume():
-    while True:
-        # wait for an item from the producer
-        item = await queue.get()
-
-        # process the item
-        print(f'consuming {item}...')
-        # simulate i/o operation using sleep
-        #await asyncio.sleep(random.random())
-
-        # Notify the queue that the item has been processed
-        queue.task_done()
-
-
 async def main(opt):
     check_requirements(ROOT / 'requirements.txt', exclude=('tensorboard', 'thop'))
 
     global queue
     queue = asyncio.Queue()
 
-    consumer = asyncio.create_task(serve())
-    await yolo(queue, **vars(opt))
-    
+    server = grpc.aio.server()
+    add_YoloStreamerServicer_to_server(YoloStreamer(), server)
+    listen_addr = "[::]:50051"
+    server.add_insecure_port(listen_addr)
+    LOGGER.info(f'Starting server on {listen_addr}')
+
+    consumer = asyncio.create_task(server.start())
+    producer = asyncio.create_task(yolo(**vars(opt)))
+    await producer
     await queue.join()
     consumer.cancel()
 

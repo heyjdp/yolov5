@@ -33,8 +33,8 @@ using grpc::Channel;
 using grpc::ClientContext;
 using grpc::ClientReader;
 using grpc::Status;
-using yolostreamingoutput::YoloRequest;
 using yolostreamingoutput::YoloReply;
+using yolostreamingoutput::YoloRequest;
 using yolostreamingoutput::YoloStreamer;
 
 class YoloClient
@@ -42,28 +42,31 @@ class YoloClient
 public:
     YoloClient(std::shared_ptr<Channel> channel)
         : stub_(YoloStreamer::NewStub(channel))
-    {}
+    {
+    }
 
-    void SayHello(const std::string& message)
+    void SayHello(const std::string &message)
     {
         YoloRequest request;
         request.set_message(message);
+
+        std::cout << "Hello2" << std::endl;
 
         ClientContext context;
         std::unique_ptr<ClientReader<YoloReply>> reader(stub_->yoloDetection(&context, request));
 
         YoloReply reply;
-        while (reader->Read(&reply)) 
+        while (reader->Read(&reply))
         {
             std::cout << "Got reply: " << reply.detection() << std::endl;
         }
 
         Status status = reader->Finish();
-        if (status.ok()) 
+        if (status.ok())
         {
             std::cout << "yoloDetection rpc succeeded." << std::endl;
-        } 
-        else 
+        }
+        else
         {
             std::cout << "yoloDetection rpc failed." << std::endl;
             std::cout << status.error_code() << ": " << status.error_message() << std::endl;
@@ -74,12 +77,15 @@ private:
     std::unique_ptr<YoloStreamer::Stub> stub_;
 };
 
-int main(int argc, char** argv)
+int main(int argc, char **argv)
 {
-    YoloClient greeter(grpc::CreateChannel("localhost:50051", 
+    YoloClient greeter(grpc::CreateChannel("localhost:50051",
         grpc::InsecureChannelCredentials()));
     std::string message("yolo");
 
+    std::cout << "Hello1" << std::endl;
+
+    greeter.SayHello(message);
+
     return 0;
 }
-
