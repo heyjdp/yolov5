@@ -1,3 +1,39 @@
+# YOLOv5 (modifications for gRPC)
+
+## First run
+
+```
+cd C:\Workspace\Marina\yolov5
+docker build -t osm/yolov5
+```
+
+*NOTE* make sure that inside the docker we use package: opencv-python-headless (in requirements.txt)
+
+## Start the docker
+
+```
+cd C:\Workspace\Marina\yolov5
+docker run --ipc=host --gpus=all -it -p8554:8554/tcp -p8554:8554/udp -p50051:50051/tcp -p50051:50051/udp -v.:/usr/src/osm osm/yolov5 
+```
+
+## From inside the docker
+
+Check to see if you have the `cams.streams` file, example contents:
+
+```
+# cat cams.streams
+https://192.168.10.1:8554/cam_rgb
+https://192.168.10.1:8554/cam_ir
+```
+
+And then start up the process manually:
+
+```
+python detect.py --source /usr/src/osm/cams.streams --weights /usr/src/osm/weights/visual_Oslo.pt
+```
+
+# Original Below
+
 <div align="center">
   <p>
     <a align="center" href="https://ultralytics.com/yolov5" target="_blank">
